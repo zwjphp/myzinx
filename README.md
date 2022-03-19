@@ -21,3 +21,9 @@ ListenTCP在本地TCP地址laddr上声明并返回一个*TCPListener，net参数
 func (l *TCPListener) AcceptTCP() (*TCPConn, error)
 ```
 AcceptTCP接收下一个呼叫，并返回一个新的*TCPConn。
+
+##func (*IPConn) RemoteAddr
+```go
+func (c *IPConn) RemoteAddr() Addr
+```
+RemoteAddr返回远端网络地址
