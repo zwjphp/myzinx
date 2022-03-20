@@ -2,8 +2,8 @@ package znet
 
 import (
 	"fmt"
+	"myzinx/zinx/ziface"
 	"net"
-	"zinx/ziface"
 )
 
 type Connection struct {
@@ -13,20 +13,20 @@ type Connection struct {
 	ConnID uint32
 	// 当前链接的关闭状态
 	isClosed bool
-	// 该链接的处理方法api
-	handleAPI ziface.HandleFunc
+    // 该连接的处理方法router
+    Router ziface.IRouter
 
-	// 告知该链接已经推出/停止的channel
+	// 告知该链接已经退出/停止的channel
 	ExitBuffChan chan bool
 }
 
 // 创建链接的方法
-func NewConntion(conn *net.TCPConn, connID uint32, callback_api ziface.HandleFunc) *Connection{
+func NewConntion(conn *net.TCPConn, connID uint32, router ziface.IRouter) *Connection{
 	c := &Connection{
 		Conn:      conn,
 		ConnID:    connID,
 		isClosed:  false,
-		handleAPI: callback_api,
+		Router: router,
 	}
 
 	return c
@@ -41,19 +41,26 @@ func (c *Connection) StartReader() {
 	for {
 		// 读取最大的数据到buf中
 		buf := make([]byte, 512)
-		cnt, err := c.Conn.Read(buf)
+		_, err := c.Conn.Read(buf)
 		if err != nil {
 			fmt.Println("recv buf err ", err)
 			c.ExitBuffChan <- true
 			continue
 		}
-		// 调用当前链接业务（这里执行的是当前conn的绑定的handle方法）
-		if err := c.handleAPI(c.Conn, buf, cnt); err != nil {
-			fmt.Println("connID ", c.ConnID, " handle is error")
-			c.ExitBuffChan <- true
-			return
+
+		// 得到当前客户端请求的Request数据
+		req := Request{
+			conn:c,
+			data:buf,
 		}
 
+		// 从路由Routers 中找到注册绑定Conn的对应Handle
+		go func (request ziface.IRequest) {
+			// 执行注册的路由方法
+			c.Router.PostHandle(request)
+			c.Router.Handle(request)
+			c.Router.PostHandle(request)
+		}(&req)
 	}
 }
 
