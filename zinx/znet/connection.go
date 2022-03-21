@@ -2,6 +2,7 @@ package znet
 
 import (
 	"fmt"
+	"myzinx/zinx/utils"
 	"myzinx/zinx/ziface"
 	"net"
 )
@@ -40,7 +41,7 @@ func (c *Connection) StartReader() {
 
 	for {
 		// 读取最大的数据到buf中
-		buf := make([]byte, 512)
+		buf := make([]byte, utils.GlobalObject.MaxPacketSize)
 		_, err := c.Conn.Read(buf)
 		if err != nil {
 			fmt.Println("recv buf err ", err)
