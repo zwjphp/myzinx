@@ -16,6 +16,9 @@ type IConnection interface {
 	RemoteAddr() net.Addr
 	//直接将Message数据发送数据给远程的TCP客户端
 	SendMsg(msgId uint32, data []byte) error
+
+	// 写消息Goroutine， 用户将数据发送给客户端
+	StartWriter()
 }
 
 // 定义一个统一处理链接业务的接口
