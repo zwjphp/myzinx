@@ -19,8 +19,8 @@ type Server struct {
 	IP string
 	// 服务绑定的端口
 	Port int
-	// 当前Server由用户绑定的回调router，也就是Server注册的连接对应处理业务
-	Router ziface.IRouter
+	//当前Server的消息管理模块，用来绑定MsgId和对应的处理方法
+	msgHandler ziface.IMsgHandle
 }
 
 //=============== 定义当前客户端链接的handle api==============
@@ -77,7 +77,7 @@ func (s *Server) Start() {
 			//3.2 TODO Server.Start() 设置服务器最大连接控制,如果超过最大连接，那么则关闭此新的连接
 
 			//3.3 TODO Server.Start() 处理该新连接请求的 业务 方法， 此时应该有 handler 和 conn是绑定的
-			dealConn := NewConntion(conn, cid, s.Router)
+			dealConn := NewConntion(conn, cid, s.msgHandler)
 			cid++
 
 			// 3.4 启动当前链接的处理业务
@@ -104,8 +104,8 @@ func (s *Server) Serve() {
 }
 
 // 路由功能：给当前服务注册一个路由业务方法，供客户端连接处理使用
-func (s *Server) AddRouter(router ziface.IRouter) {
-	s.Router = router
+func (s *Server) AddRouter(msgId uint32, router ziface.IRouter) {
+	s.msgHandler.AddRouter(msgId, router)
 	fmt.Println("Add Router succ! " )
 }
 
@@ -121,7 +121,7 @@ func NewServer() ziface.IServer {
 		IPVersion: "tcp4",
 		IP:        utils.GlobalObject.Host,
 		Port:      utils.GlobalObject.TcpPort, // 从全局参数获取
-		Router:    nil,
+		msgHandler: NewMsgHandle(), //msgHandler 初始化
 	}
 
 	return s
