@@ -17,7 +17,14 @@ type IConnection interface {
 	//直接将Message数据发送数据给远程的TCP客户端
 	SendMsg(msgId uint32, data []byte) error
 	//直接将Message数据发送给远程的TCP客户端(有缓冲)
-	SendBuffMsg(msgId uint32, data []byte) error   //添加带缓冲发送消息接口
+	SendBuffMsg(msgId uint32, data []byte) error //添加带缓冲发送消息接口
+
+	//设置链接属性
+	SetProperty(key string, value interface{})
+	//获取链接属性
+	GetProperty(key string) (interface{}, error)
+	//移除链接属性
+	RemoveProperty(key string)
 }
 
 // 定义一个统一处理链接业务的接口

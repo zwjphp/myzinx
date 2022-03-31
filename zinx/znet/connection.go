@@ -7,11 +7,12 @@ import (
 	"myzinx/zinx/utils"
 	"myzinx/zinx/ziface"
 	"net"
+	"sync"
 )
 
 type Connection struct {
 	//当前Conn属于哪个Server
-	TcpServer	ziface.IServer       //当前conn属于哪个server，在conn初始化的时候添加即可
+	TcpServer ziface.IServer //当前conn属于哪个server，在conn初始化的时候添加即可
 	// 当前链接的socket TCP套接字
 	Conn *net.TCPConn
 	// 当前链接的ID 也可以称作为SessionID, ID 全局唯一
@@ -24,26 +25,34 @@ type Connection struct {
 	// 告知该链接已经退出/停止的channel
 	ExitBuffChan chan bool
 	//无缓冲管道，用于读、写两个goroutine之间的消息通信
-	msgChan		chan []byte
+	msgChan chan []byte
 	//有关冲管道，用于读、写两个goroutine之间的消息通信
 	msgBuffChan chan []byte
+
+	// ================================
+	//链接属性
+	property map[string]interface{}
+	//保护链接属性修改的锁
+	propertyLock sync.RWMutex
+	// ================================
 }
 
 // 创建链接的方法
-func NewConntion(server ziface.IServer, conn *net.TCPConn, connID uint32, msgHandler ziface.IMsgHandle) *Connection{
+func NewConntion(server ziface.IServer, conn *net.TCPConn, connID uint32, msgHandler ziface.IMsgHandle) *Connection {
 	c := &Connection{
-		TcpServer:server,    //将隶属的server传递进来
-		Conn:      conn,
-		ConnID:    connID,
-		isClosed:  false,
-		MsgHandler: msgHandler,
+		TcpServer:    server, //将隶属的server传递进来
+		Conn:         conn,
+		ConnID:       connID,
+		isClosed:     false,
+		MsgHandler:   msgHandler,
 		ExitBuffChan: make(chan bool, 1),
-		msgChan:make(chan []byte), //msgChan初始化
-		msgBuffChan:make(chan []byte, utils.GlobalObject.MaxMsgChanLen),
+		msgChan:      make(chan []byte), //msgChan初始化
+		msgBuffChan:  make(chan []byte, utils.GlobalObject.MaxMsgChanLen),
+		property:     make(map[string]interface{}), //对链接属性map初始化
 	}
 
 	//将新创建的Conn添加到链接管理中
-	c.TcpServer.GetConnMgr().Add(c)   //将当前新创建的连接添加到ConnManager中
+	c.TcpServer.GetConnMgr().Add(c) //将当前新创建的连接添加到ConnManager中
 	return c
 }
 
@@ -67,7 +76,7 @@ func (c *Connection) StartReader() {
 		}
 
 		//拆包，得到msgid 和 datalen 放在msg中
-		msg , err := dp.Unpack(headData)
+		msg, err := dp.Unpack(headData)
 		if err != nil {
 			fmt.Println("unpack error ", err)
 			c.ExitBuffChan <- true
@@ -88,8 +97,8 @@ func (c *Connection) StartReader() {
 
 		//得到当前客户端请求的Request数据
 		req := Request{
-			conn:c,
-			msg:msg, //将之前的buf 改成 msg
+			conn: c,
+			msg:  msg, //将之前的buf 改成 msg
 		}
 
 		if utils.GlobalObject.WorkerPoolSize > 0 {
@@ -101,7 +110,6 @@ func (c *Connection) StartReader() {
 		}
 	}
 }
-
 
 // 启动链接，让当前链接开始工作
 func (c *Connection) Start() {
@@ -117,12 +125,13 @@ func (c *Connection) Start() {
 
 	for {
 		select {
-		case <- c.ExitBuffChan:
+		case <-c.ExitBuffChan:
 			// 得到推出消息， 不在阻塞
 			return
 		}
 	}
 }
+
 // 停止链接，结束当前链接状态
 func (c *Connection) Stop() {
 	// 1. 如果当前链接已经关闭
@@ -142,27 +151,28 @@ func (c *Connection) Stop() {
 	// 通知从缓冲队列读取数据的业务， 该链接已经关闭
 	c.ExitBuffChan <- true
 
-
 	//将链接从连接管理器中删除
-	c.TcpServer.GetConnMgr().Remove(c)  //删除conn从ConnManager中
+	c.TcpServer.GetConnMgr().Remove(c) //删除conn从ConnManager中
 
 	// 关闭该链接全部管道
 	close(c.ExitBuffChan)
 	close(c.msgBuffChan)
 }
+
 // 从当前连接获取原始的socket TCPConn
 func (c *Connection) GetTCPConnection() *net.TCPConn {
 	return c.Conn
 }
+
 // 获取当前连接ID
 func (c *Connection) GetConnID() uint32 {
 	return c.ConnID
 }
+
 // 获取远程客户端地址信息
 func (c *Connection) RemoteAddr() net.Addr {
 	return c.Conn.RemoteAddr()
 }
-
 
 //直接将Message数据发送数据给远程的TCP客户端
 func (c *Connection) SendMsg(msgId uint32, data []byte) error {
@@ -174,11 +184,11 @@ func (c *Connection) SendMsg(msgId uint32, data []byte) error {
 	msg, err := dp.Pack(NewMsgPackage(msgId, data))
 	if err != nil {
 		fmt.Println("Pack error msg id = ", msgId)
-		return  errors.New("Pack error msg ")
+		return errors.New("Pack error msg ")
 	}
 
 	//写回客户端
-	c.msgChan <- msg   //将之前直接回写给conn.Write的方法 改为 发送给Channel 供Writer读取
+	c.msgChan <- msg //将之前直接回写给conn.Write的方法 改为 发送给Channel 供Writer读取
 
 	return nil
 }
@@ -192,7 +202,7 @@ func (c *Connection) SendBuffMsg(msgId uint32, data []byte) error {
 	msg, err := dp.Pack(NewMsgPackage(msgId, data))
 	if err != nil {
 		fmt.Println("Pack error msg id = ", msgId)
-		return  errors.New("Pack error msg ")
+		return errors.New("Pack error msg ")
 	}
 
 	//写回客户端
@@ -200,6 +210,7 @@ func (c *Connection) SendBuffMsg(msgId uint32, data []byte) error {
 
 	return nil
 }
+
 /*
 	写消息Goroutine， 用户将数据发送给客户端
 */
@@ -217,7 +228,7 @@ func (c *Connection) StartWriter() {
 				return
 			}
 			//针对有缓冲channel需要些的数据处理
-		case data, ok:= <-c.msgBuffChan:
+		case data, ok := <-c.msgBuffChan:
 			if ok {
 				//有数据要写给客户端
 				if _, err := c.Conn.Write(data); err != nil {
@@ -228,9 +239,37 @@ func (c *Connection) StartWriter() {
 				break
 				fmt.Println("msgBuffChan is Closed")
 			}
-		case <- c.ExitBuffChan:
+		case <-c.ExitBuffChan:
 			//conn已经关闭
 			return
 		}
 	}
+}
+
+//设置链接属性
+func (c *Connection) SetProperty(key string, value interface{}) {
+	c.propertyLock.Lock()
+	defer c.propertyLock.Unlock()
+
+	c.property[key] = value
+}
+
+//获取链接属性
+func (c *Connection) GetProperty(key string) (interface{}, error) {
+	c.propertyLock.RLock()
+	defer c.propertyLock.RUnlock()
+
+	if value, ok := c.property[key]; ok {
+		return value, nil
+	} else {
+		return nil, errors.New("no property found")
+	}
+}
+
+//移除链接属性
+func (c *Connection) RemoveProperty(key string) {
+	c.propertyLock.Lock()
+	defer c.propertyLock.Unlock()
+
+	delete(c.property, key)
 }
